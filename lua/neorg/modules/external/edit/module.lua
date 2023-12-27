@@ -59,6 +59,7 @@ end
 module.on_event = function(event)
     if event.split_type[2] == (module.name .. ".next-iteration") then
         local ts = module.required["core.integrations.treesitter"]
+        -- Question: Why do we need to subtract 1 from the cursor position? Perhaps from a change from 1-indexing to 0-indexing?
         local cursor_pos = event.cursor_position[1] - 1
 
         local current = ts.get_first_node_on_line(event.buffer, cursor_pos, module.config.private.stop_types)
@@ -70,6 +71,7 @@ module.on_event = function(event)
             return
         end
 
+        -- Find the first parent node that is an iterable
         while current:parent() do
             if
                 lib.filter(module.config.public.iterables, function(_, iterable)
@@ -113,16 +115,29 @@ module.on_event = function(event)
 
         local _, column = current:start()
 
-        local is_on_nonempty_line =
-            vim.api.nvim_buf_get_lines(event.buffer, cursor_pos, cursor_pos + 1, true)[1]:match("%S")
-        if is_on_nonempty_line then
-            cursor_pos = cursor_pos + 1
+        -- Set cursor_pos to insert the new item at the end of the current node
+        cursor_pos = current:end_()
+
+        -- Hack to fix issue where the end of node is one row short for a list
+        -- item that is followed by an empty line. Checks if `current` is an
+        -- ordered or unordered list item and if the next line is empty; if so,
+        -- add 1 to cursor_pos.
+        -- Note: cursor_pos + 1 is the next line for the problematic case where
+        -- the following line is empty; but cursor_pos should be the next line
+        -- in other cases, so this would seem to be checking 2 lines ahead in
+        -- that case; still, it seems to be working as is.
+        if current:type():match("list%d") then
+            local line_after = vim.api.nvim_buf_get_lines(event.buffer, cursor_pos + 1, cursor_pos + 2, true)[1]
+            local line_after_is_empty = not line_after:match("%S")
+            if line_after_is_empty then
+                cursor_pos = cursor_pos + 1
+            end
         end
 
         vim.api.nvim_buf_set_lines(
             event.buffer,
             cursor_pos,
-            cursor_pos + (is_on_nonempty_line and 0 or 1),
+            cursor_pos,
             true,
             { string.rep(" ", column) .. text_to_repeat .. (should_append_extension and "( ) " or "") }
         )
@@ -141,3 +156,4 @@ module.events.subscribed = {
 }
 
 return module
+-- vim:tabstop=4:shiftwidth=4:expandtab
