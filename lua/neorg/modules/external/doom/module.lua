@@ -114,26 +114,17 @@ module.on_event = function(event)
 
         local text_to_repeat = ts.get_node_text(current:named_child(0), event.buffer)
 
+        -- Column to indent to
         local _, column = current:start()
 
-        -- Set cursor_pos to insert the new item at the end of the current node
-        cursor_pos = current:end_()
-
-        -- Hack to fix issue where the end of node is one row short for a list
-        -- item that is followed by an empty line. Checks if `current` is an
-        -- ordered or unordered list item and if the next line is empty; if so,
-        -- add 1 to cursor_pos.
-        -- Note: cursor_pos + 1 is the next line for the problematic case where
-        -- the following line is empty; but cursor_pos should be the next line
-        -- in other cases, so this would seem to be checking 2 lines ahead in
-        -- that case; still, it seems to be working as is.
-        if current:type():match("list%d") then
-            local line_after = vim.api.nvim_buf_get_lines(event.buffer, cursor_pos + 1, cursor_pos + 2, true)[1]
-            local line_after_is_empty = not line_after:match("%S")
-            if line_after_is_empty then
-                cursor_pos = cursor_pos + 1
-            end
-        end
+        -- Determine the row to insert the new line after the end of the
+        -- current node. There are two cases; for list items that are followed
+        -- by a blank line, the end of the node as returned by treesitter will
+        -- be on the line with text (in which case, we need to add 1 to then
+        -- end row); for other cases, it will be at column 0 of the following
+        -- line (in which case we can use the end row).
+        local end_row, end_col = current:end_()
+        cursor_pos = end_row + (end_col == 0 and 0 or 1)
 
         vim.api.nvim_buf_set_lines(
             event.buffer,
