@@ -1,7 +1,8 @@
 --[[
-    file: Edit
-    title: Helpers for editing neorg documents
-    description: Expands the power of itero and other core modules.
+    file: Doom
+    title: Neorg helpers inspired by Doom Emacs
+    description: Helpers for editing neorg documents inspired by org-mode in
+    Doom Emacs.
     ---
 Add module docs here!
 
@@ -11,7 +12,7 @@ The starting point for this file is module.lua from the core.itero module
 local neorg = require("neorg.core")
 local lib, log, modules, utils = neorg.lib, neorg.log, neorg.modules, neorg.utils
 
-local module = modules.create("external.edit")
+local module = modules.create("external.doom")
 
 module.setup = function()
     return {
