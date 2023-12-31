@@ -54,16 +54,19 @@ module.config.private = {
 module.load = function()
     modules.await("core.keybinds", function(keybinds)
         keybinds.register_keybinds(module.name, { "insert-item-below" })
+        keybinds.register_keybinds(module.name, { "insert-item-above" })
     end)
 end
 
-module.on_event = function(event)
-    if event.split_type[2] == (module.name .. ".insert-item-below") then
+module.private = {
+    -- Insert a new iterable item above or below the current one
+    insert_item = function (event, direction)
         local ts = module.required["core.integrations.treesitter"]
-        -- Question: Why do we need to subtract 1 from the cursor position? Perhaps from a change from 1-indexing to 0-indexing?
-        local cursor_pos = event.cursor_position[1] - 1
 
-        local current = ts.get_first_node_on_line(event.buffer, cursor_pos, module.config.private.stop_types)
+        -- Note: ts.get_first_node_on_line() requires a 0-indexed row;
+        -- event.cursor_position[1] is a 1-indexed row returned by
+        -- nvim_win_get_cursor()
+        local current = ts.get_first_node_on_line(event.buffer, event.cursor_position[1] - 1, module.config.private.stop_types)
 
         if not current then
             log.error(
@@ -91,7 +94,7 @@ module.on_event = function(event)
             if fallback then
                 assert(
                     type(fallback) == "string",
-                    "Invalid argument provided to `next-iterable` keybind! Option should be of type `string`!"
+                    "Invalid argument provided to `insert-item` keybind! Option should be of type `string`!"
                 )
 
                 vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(fallback, true, true, true), "t", false)
@@ -114,35 +117,52 @@ module.on_event = function(event)
 
         local text_to_repeat = ts.get_node_text(current:named_child(0), event.buffer)
 
-        -- Column to indent to
-        local _, column = current:start()
+        -- The start column determines the column to indent to; the start row
+        -- is also used to determine the insertion row for the "above" method
+        local start_row, start_col = current:start()
 
-        -- Determine the row to insert the new line after the end of the
-        -- current node. There are two cases; for list items that are followed
-        -- by a blank line, the end of the node as returned by treesitter will
-        -- be on the line with text (in which case, we need to add 1 to then
-        -- end row); for other cases, it will be at column 0 of the following
-        -- line (in which case we can use the end row).
-        local end_row, end_col = current:end_()
-        cursor_pos = end_row + (end_col == 0 and 0 or 1)
+        -- Determine the row to insert the new item
+        local insert_row = nil
+        if direction == "above" then
+            insert_row = start_row
+        elseif direction == "below" then
+            -- To determine the row after the end of the current node, there
+            -- are two cases. If the current item is followed by a blank line,
+            -- the end of the node as returned by treesitter will be at the end
+            -- of the last line with text; in this case, we need to add 1 to
+            -- the end row. For other cases, the end of the node will be at
+            -- column 0 of the following line, so we can just use the end row.
+            local end_row, end_col = current:end_()
+            insert_row = end_row + (end_col == 0 and 0 or 1)
+        end
 
+        -- Insert the new item and move the cursor to the correct location
         vim.api.nvim_buf_set_lines(
             event.buffer,
-            cursor_pos,
-            cursor_pos,
+            insert_row,
+            insert_row,
             true,
-            { string.rep(" ", column) .. text_to_repeat .. (should_append_extension and "( ) " or "") }
+            { string.rep(" ", start_col) .. text_to_repeat .. (should_append_extension and "( ) " or "") }
         )
         vim.api.nvim_win_set_cursor(
             event.window,
-            { cursor_pos + 1, column + text_to_repeat:len() + (should_append_extension and ("( ) "):len() or 0) }
+            { insert_row + 1, start_col + text_to_repeat:len() + (should_append_extension and ("( ) "):len() or 0) }
         )
+    end
+}
+
+module.on_event = function(event)
+    if event.split_type[2] == (module.name .. ".insert-item-below") then
+        module.private.insert_item(event, "below")
+    elseif event.split_type[2] == (module.name .. ".insert-item-above") then
+        module.private.insert_item(event, "above")
     end
 end
 
 module.events.subscribed = {
     ["core.keybinds"] = {
         [module.name .. ".insert-item-below"] = true,
+        [module.name .. ".insert-item-above"] = true,
     },
 }
 
