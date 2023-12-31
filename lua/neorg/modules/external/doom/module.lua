@@ -53,12 +53,12 @@ module.config.private = {
 
 module.load = function()
     modules.await("core.keybinds", function(keybinds)
-        keybinds.register_keybinds(module.name, { "next-iteration", "stop-iteration" })
+        keybinds.register_keybinds(module.name, { "insert-item-below" })
     end)
 end
 
 module.on_event = function(event)
-    if event.split_type[2] == (module.name .. ".next-iteration") then
+    if event.split_type[2] == (module.name .. ".insert-item-below") then
         local ts = module.required["core.integrations.treesitter"]
         -- Question: Why do we need to subtract 1 from the cursor position? Perhaps from a change from 1-indexing to 0-indexing?
         local cursor_pos = event.cursor_position[1] - 1
@@ -142,8 +142,7 @@ end
 
 module.events.subscribed = {
     ["core.keybinds"] = {
-        [module.name .. ".next-iteration"] = true,
-        [module.name .. ".stop-iteration"] = true,
+        [module.name .. ".insert-item-below"] = true,
     },
 }
 
