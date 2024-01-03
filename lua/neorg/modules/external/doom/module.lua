@@ -18,6 +18,7 @@ module.setup = function()
   return {
     requires = {
       "core.integrations.treesitter",
+      "core.promo",
     },
   }
 end
@@ -55,6 +56,10 @@ module.load = function()
   modules.await("core.keybinds", function(keybinds)
     keybinds.register_keybinds(module.name, { "insert-item-below" })
     keybinds.register_keybinds(module.name, { "insert-item-above" })
+    keybinds.register_keybinds(module.name, { "promote" })
+    keybinds.register_keybinds(module.name, { "promote-subtree" })
+    keybinds.register_keybinds(module.name, { "demote-subtree" })
+    keybinds.register_keybinds(module.name, { "demote" })
   end)
 end
 
@@ -70,7 +75,7 @@ module.private = {
 
     if not current then
       log.error(
-        "Treesitter seems to be high and can't properly grab the node under the cursor. Perhaps try again?"
+        "Treesitter can't properly grab the node under the cursor."
       )
       return
     end
@@ -148,14 +153,25 @@ module.private = {
       event.window,
       { insert_row + 1, start_col + text_to_repeat:len() + (should_append_extension and ("( ) "):len() or 0) }
     )
-  end
+  end,
 }
 
 module.on_event = function(event)
+  local row = event.cursor_position[1] - 1
+
   if event.split_type[2] == (module.name .. ".insert-item-below") then
     module.private.insert_item(event, "below")
   elseif event.split_type[2] == (module.name .. ".insert-item-above") then
     module.private.insert_item(event, "above")
+  elseif event.split_type[2] == (module.name .. ".promote") then
+    -- Note: For some reason, does not update indentation when not also promoting children
+    module.required["core.promo"].promote_or_demote(event.buffer, "demote", row, true, false)
+  elseif event.split_type[2] == (module.name .. ".demote") then
+    module.required["core.promo"].promote_or_demote(event.buffer, "promote", row, true, false)
+  elseif event.split_type[2] == (module.name .. ".promote-subtree") then
+    module.required["core.promo"].promote_or_demote(event.buffer, "demote", row, true, true)
+  elseif event.split_type[2] == (module.name .. ".demote-subtree") then
+    module.required["core.promo"].promote_or_demote(event.buffer, "promote", row, true, true)
   end
 end
 
@@ -163,6 +179,10 @@ module.events.subscribed = {
   ["core.keybinds"] = {
     [module.name .. ".insert-item-below"] = true,
     [module.name .. ".insert-item-above"] = true,
+    [module.name .. ".promote"] = true,
+    [module.name .. ".promote-subtree"] = true,
+    [module.name .. ".demote"] = true,
+    [module.name .. ".demote-subtree"] = true,
   },
 }
 
