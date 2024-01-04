@@ -60,6 +60,7 @@ module.load = function()
     keybinds.register_keybinds(module.name, { "promote-subtree" })
     keybinds.register_keybinds(module.name, { "demote-subtree" })
     keybinds.register_keybinds(module.name, { "demote" })
+    keybinds.register_keybinds(module.name, { "back-to-heading" })
   end)
 end
 
@@ -154,6 +155,23 @@ module.private = {
       { insert_row + 1, start_col + text_to_repeat:len() + (should_append_extension and ("( ) "):len() or 0) }
     )
   end,
+
+  -- Move the cursor to the heading of the current subtree
+  back_to_heading = function (event)
+    local ts = module.required["core.integrations.treesitter"]
+    -- Find the first parent node that is a heading
+    -- Question: Should the number match allow for multiple digits?
+    -- Question: Can I use built-in treesitter functions to do this?
+    local current = ts.get_first_node_on_line(event.buffer, event.cursor_position[1] - 1, module.config.private.stop_types)
+    while current:parent() do
+      if current:type():match("^heading%d$") then
+        break
+      end
+      current = current:parent()
+    end
+    local start_row, start_col = current:start()
+    vim.api.nvim_win_set_cursor(event.window, {start_row + 1, start_col})
+  end,
 }
 
 module.on_event = function(event)
@@ -172,6 +190,8 @@ module.on_event = function(event)
     module.required["core.promo"].promote_or_demote(event.buffer, "demote", row, true, true)
   elseif event.split_type[2] == (module.name .. ".demote-subtree") then
     module.required["core.promo"].promote_or_demote(event.buffer, "promote", row, true, true)
+  elseif event.split_type[2] == (module.name .. ".back-to-heading") then
+    module.private.back_to_heading(event)
   end
 end
 
@@ -183,6 +203,7 @@ module.events.subscribed = {
     [module.name .. ".promote-subtree"] = true,
     [module.name .. ".demote"] = true,
     [module.name .. ".demote-subtree"] = true,
+    [module.name .. ".back-to-heading"] = true,
   },
 }
 
