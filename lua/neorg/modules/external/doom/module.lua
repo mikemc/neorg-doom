@@ -61,6 +61,8 @@ module.load = function()
     keybinds.register_keybinds(module.name, { "demote-subtree" })
     keybinds.register_keybinds(module.name, { "demote" })
     keybinds.register_keybinds(module.name, { "back-to-heading" })
+    keybinds.register_keybinds(module.name, { "move-subtree-up" })
+    keybinds.register_keybinds(module.name, { "move-subtree-down" })
   end)
 end
 
@@ -172,6 +174,44 @@ module.private = {
     local start_row, start_col = current:start()
     vim.api.nvim_win_set_cursor(event.window, {start_row + 1, start_col})
   end,
+
+  -- Move the current subtree up or down
+  move_subtree = function (event, direction)
+    -- Find the nearest heading containing the current line; set to 'current' node.
+    local ts = module.required["core.integrations.treesitter"]
+    local current = ts.get_first_node_on_line(event.buffer, event.cursor_position[1] - 1, module.config.private.stop_types)
+    while current:parent() do
+      if current:type():match("^heading%d$") then
+        break
+      end
+      current = current:parent()
+    end
+    local start_row = current:start()
+    local end_row = current:end_()
+    -- Then find the sister node above or below (depending on 'direction' argument), if it exists.
+    local sibling = nil
+    local insert_row = nil
+    if (direction == "up") then
+      sibling = current:prev_sibling()
+      if sibling then 
+        insert_row = sibling:start()
+      end
+    elseif (direction == "down") then
+      sibling = current:next_sibling()
+      if sibling then 
+        insert_row = sibling:end_() - (end_row - start_row)
+      end
+    else
+      log.error('`direction` must be "up" or "down".')
+    end
+    -- If sibling is not nil, then move the current subtree to other side of sibling and restore cursor position to location in current.
+    if sibling then
+      local current_text = vim.api.nvim_buf_get_lines(event.buffer, start_row, end_row, true)
+      vim.api.nvim_buf_set_lines(event.buffer, start_row, end_row, true, {})
+      vim.api.nvim_buf_set_lines(event.buffer, insert_row, insert_row, true, current_text)
+      vim.api.nvim_win_set_cursor(event.window, {insert_row + 1, event.cursor_position[2]})
+    end
+  end,
 }
 
 module.on_event = function(event)
@@ -192,6 +232,10 @@ module.on_event = function(event)
     module.required["core.promo"].promote_or_demote(event.buffer, "promote", row, true, true)
   elseif event.split_type[2] == (module.name .. ".back-to-heading") then
     module.private.back_to_heading(event)
+  elseif event.split_type[2] == (module.name .. ".move-subtree-up") then
+    module.private.move_subtree(event, "up")
+  elseif event.split_type[2] == (module.name .. ".move-subtree-down") then
+    module.private.move_subtree(event, "down")
   end
 end
 
@@ -204,6 +248,8 @@ module.events.subscribed = {
     [module.name .. ".demote"] = true,
     [module.name .. ".demote-subtree"] = true,
     [module.name .. ".back-to-heading"] = true,
+    [module.name .. ".move-subtree-up"] = true,
+    [module.name .. ".move-subtree-down"] = true,
   },
 }
 
