@@ -63,6 +63,7 @@ module.load = function()
     keybinds.register_keybinds(module.name, { "back-to-heading" })
     keybinds.register_keybinds(module.name, { "move-subtree-up" })
     keybinds.register_keybinds(module.name, { "move-subtree-down" })
+    keybinds.register_keybinds(module.name, { "toggle-heading" })
   end)
 end
 
@@ -158,19 +159,32 @@ module.private = {
     )
   end,
 
-  -- Move the cursor to the heading of the current subtree
-  back_to_heading = function (event)
-    local ts = module.required["core.integrations.treesitter"]
-    -- Find the first parent node that is a heading
-    -- Question: Should the number match allow for multiple digits?
+  -- Get the first node on the current line
+  get_first_node_on_event_line = function (event)
     -- Question: Can I use built-in treesitter functions to do this?
-    local current = ts.get_first_node_on_line(event.buffer, event.cursor_position[1] - 1, module.config.private.stop_types)
+    return module.required["core.integrations.treesitter"].get_first_node_on_line(
+      event.buffer, 
+      event.cursor_position[1] - 1, 
+      module.config.private.stop_types
+    )
+  end,
+
+  -- Find the first heading containing the cursor position
+  get_heading = function (event)
+    local current = module.private.get_first_node_on_event_line(event)
     while current:parent() do
       if current:type():match("^heading%d$") then
         break
       end
       current = current:parent()
     end
+    return current
+  end,
+
+  -- Move the cursor to the heading of the current subtree
+  -- Question: Which column should the cursor be moved to?
+  back_to_heading = function (event)
+    local current = module.private.get_heading(event)
     local start_row, start_col = current:start()
     vim.api.nvim_win_set_cursor(event.window, {start_row + 1, start_col})
   end,
@@ -212,6 +226,34 @@ module.private = {
       vim.api.nvim_win_set_cursor(event.window, {insert_row + 1, event.cursor_position[2]})
     end
   end,
+
+  -- Convert a normal line or list item to a heading, or a heading to a normal line
+  -- Note: Does not reindent other content; ideally, when converting a heading I would reindent its child text if necessary.
+  toggle_heading = function (event)
+    local current = module.private.get_first_node_on_event_line(event)
+    local current_text = vim.api.nvim_get_current_line()
+    -- If current line is a heading, replace the heading prefix with spaces
+    -- Current version uses the indentation level corresponding to the heading's level (not the previous heading, which will become the new parent.)
+    if current:type():match("^heading%d$") then
+      local prefix = current_text:match("^%s*(%*+)")
+      local new_text = current_text:gsub("^%s*%*+", string.rep(" ", #prefix))
+      vim.api.nvim_set_current_line(new_text)
+    -- Otherwise, convert to a heading
+    else
+      -- If current node is a list item, first drop the list prefix
+      if current:type():match("_list%d$") then
+        current_text = current_text:gsub("^%s*[%-~]+", "")
+      end
+      -- Prepend the prefix of the parent heading to the current line, removing extra spaces
+      local current_heading = module.private.get_heading(event)
+      local row = current_heading:start()
+      local heading_text = vim.api.nvim_buf_get_lines(event.buffer, row, row + 1, true)[1]
+      local prefix = heading_text:match("^%s*%*+")
+      vim.api.nvim_set_current_line(
+        (current_text:gsub("^%s*", prefix .. " "))
+      )
+    end
+  end,
 }
 
 module.on_event = function(event)
@@ -236,6 +278,8 @@ module.on_event = function(event)
     module.private.move_subtree(event, "up")
   elseif event.split_type[2] == (module.name .. ".move-subtree-down") then
     module.private.move_subtree(event, "down")
+  elseif event.split_type[2] == (module.name .. ".toggle-heading") then
+    module.private.toggle_heading(event)
   end
 end
 
@@ -250,6 +294,7 @@ module.events.subscribed = {
     [module.name .. ".back-to-heading"] = true,
     [module.name .. ".move-subtree-up"] = true,
     [module.name .. ".move-subtree-down"] = true,
+    [module.name .. ".toggle-heading"] = true,
   },
 }
 
