@@ -169,7 +169,8 @@ module.private = {
     )
   end,
 
-  -- Find the first heading containing the cursor position
+  -- Find the parent heading of the current line
+  -- If no parent heading, return the document node
   get_heading = function (event)
     local current = module.private.get_first_node_on_event_line(event)
     while current:parent() do
@@ -244,11 +245,17 @@ module.private = {
       if current:type():match("_list%d$") then
         current_text = current_text:gsub("^%s*[%-~]+", "")
       end
-      -- Prepend the prefix of the parent heading to the current line, removing extra spaces
+      -- Prepend the prefix of the parent heading to the current line, removing extra spaces.
+      -- If no parent heading, use a single asterisk.
       local current_heading = module.private.get_heading(event)
       local row = current_heading:start()
-      local heading_text = vim.api.nvim_buf_get_lines(event.buffer, row, row + 1, true)[1]
-      local prefix = heading_text:match("^%s*%*+")
+      local prefix = nil
+      if current_heading:type():match("^heading%d$") then
+        local heading_text = vim.api.nvim_buf_get_lines(event.buffer, row, row + 1, true)[1]
+        prefix = heading_text:match("^%s*%*+")
+      else
+        prefix = "*"
+      end
       vim.api.nvim_set_current_line(
         (current_text:gsub("^%s*", prefix .. " "))
       )
